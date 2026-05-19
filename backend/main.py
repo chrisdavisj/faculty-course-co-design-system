@@ -57,14 +57,38 @@ def _claude(system: str, user: str, model: str = AGENT_MODEL) -> str | None:
 def _parse_json(text: str | None, default):
     if not text:
         return default
+    # 1. Try direct parse
     try:
-        t = text.strip()
-        if t.startswith("```"):
-            t = "\n".join(t.split("\n")[1:])
-            t = t.rsplit("```", 1)[0]
-        return json.loads(t.strip())
+        return json.loads(text.strip())
     except Exception:
-        return default
+        pass
+    # 2. Strip markdown code fences
+    t = text.strip()
+    if t.startswith("```"):
+        t = "\n".join(t.split("\n")[1:])
+        t = t.rsplit("```", 1)[0].strip()
+    try:
+        return json.loads(t)
+    except Exception:
+        pass
+    # 3. Extract first JSON object or array via brace/bracket matching
+    import re
+    for opener, closer in [('{', '}'), ('[', ']')]:
+        m = re.search(re.escape(opener), t)
+        if not m:
+            continue
+        depth, start = 0, m.start()
+        for i, ch in enumerate(t[start:], start):
+            if ch == opener:
+                depth += 1
+            elif ch == closer:
+                depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(t[start:i + 1])
+                except Exception:
+                    break
+    return default
 
 
 @asynccontextmanager
@@ -339,7 +363,7 @@ def build_analysis_llm(syllabus: SyllabusInput, data: dict) -> dict | None:
     all_comps = list(dict.fromkeys(c for course in courses for c in course["competencies"]))
     comps_text = "\n".join(f"- {c}" for c in all_comps[:20]) or "No competency data available."
 
-    JSON_FINDINGS = '{"summary": "...", "findings": ["...", "...", "...", "..."]}'
+    J = '{"summary":"one sentence","findings":["finding 1","finding 2","finding 3"]}'
 
     agent_tasks = [
         {
@@ -347,73 +371,44 @@ def build_analysis_llm(syllabus: SyllabusInput, data: dict) -> dict | None:
             "source": "Credential Registry — peer course data",
             "citations": [{"label": c["name"] or c["ctid"], "uri": c["uri"]}
                           for c in courses if c["competencies"]][:3],
-            "system": (
-                "You are the Transparency Agent for a faculty course co-design system. "
-                "Benchmark the syllabus against peer courses from the Credential Registry. "
-                "Identify topics peers cover that this course lacks, and any unique strengths. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nPEER COURSES (Credential Registry):\n{courses_text}\n\nProvide 3-4 specific, concrete findings.",
+            "system": f"Benchmark this syllabus against peer courses. Name topics peers cover that this course lacks, and any unique strengths. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}\n\nPeer courses:\n{courses_text}",
         },
         {
             "name": "Labor Market Agent", "icon": "📊",
             "source": "Credential Registry — Computer Programmer 1 job profile",
             "citations": [{"label": job["name"], "uri": job["uri"]}] if job else [],
-            "system": (
-                "You are the Labor Market Agent for a faculty course co-design system. "
-                "Analyze how well this syllabus prepares students for real job competency requirements. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nJOB PROFILE (Credential Registry — Computer Programmer 1):\n{job_text}\n\nProvide 3-4 findings about coverage gaps and strengths.",
+            "system": f"Identify how well this syllabus covers job competency requirements. Note specific gaps and strengths. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}\n\nJob profile:\n{job_text}",
         },
         {
             "name": "Competencies Agent", "icon": "🎯",
             "source": "Credential Registry competency alignment",
             "citations": [{"label": c["name"] or c["ctid"], "uri": c["uri"]}
                           for c in courses[:3] if c["competencies"]],
-            "system": (
-                "You are the Competencies Agent for a faculty course co-design system. "
-                "Assess alignment between the syllabus and Credential Registry competencies "
-                "using HIGH/MEDIUM/LOW strength-of-fit language. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nCREDENTIAL REGISTRY COMPETENCIES ({len(courses)} peer courses):\n{comps_text}\n\nProvide 3-4 findings naming specific HIGH/MEDIUM/LOW competencies.",
+            "system": f"Rate syllabus-to-competency alignment as HIGH/MEDIUM/LOW for specific competencies. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}\n\nRegistry competencies ({len(courses)} peer courses):\n{comps_text}",
         },
         {
             "name": "University Strategy Agent", "icon": "🏛️",
             "source": "University Strategic Plan 2024–2028",
             "citations": [],
-            "system": (
-                "You are the University Strategy Agent for a faculty course co-design system. "
-                "Identify opportunities to align the course with university strategic priorities: "
-                "experiential learning, industry partnerships, inclusive pedagogy, and research integration. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nProvide 2-3 specific strategic alignment opportunities.",
+            "system": f"Identify 2-3 concrete opportunities to align this course with university priorities: experiential learning, industry partnerships, inclusive pedagogy, research. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}",
         },
         {
             "name": "Assessment Agent", "icon": "✅",
             "source": "Assessment best practices (ACM SIGCSE 2024)",
             "citations": [],
-            "system": (
-                "You are the Assessment Agent for a faculty course co-design system. "
-                "Evaluate the assessment design for AI-circumvention risk and learning effectiveness. "
-                "Suggest specific AI-resistant, engaging alternatives. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nProvide 3-4 findings identifying high-risk assessments and concrete alternatives.",
+            "system": f"Flag high AI-circumvention risk in assessments and suggest specific AI-resistant alternatives. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}",
         },
         {
             "name": "Policy Agent", "icon": "📋",
             "source": "University Academic Policy Office",
             "citations": [],
-            "system": (
-                "You are the Policy Agent for a faculty course co-design system. "
-                "Check the syllabus for compliance gaps: AI use policy, academic integrity, "
-                "accessibility, and grading transparency. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nProvide 2-3 policy compliance findings.",
+            "system": f"Identify compliance gaps in: AI use policy, academic integrity, accessibility, grading transparency. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}",
         },
     ]
 
@@ -434,8 +429,15 @@ def build_analysis_llm(syllabus: SyllabusInput, data: dict) -> dict | None:
                     "citations": task["citations"],
                 }
             else:
-                print(f"[LLM] {task['name']} returned unparseable output — aborting LLM path.")
-                return None
+                print(f"[LLM] {task['name']} returned unparseable output — using stub.")
+                agent_results[task["name"]] = {
+                    "name":      task["name"],
+                    "icon":      task["icon"],
+                    "summary":   "Analysis complete",
+                    "findings":  ["Agent analysis unavailable — please retry."],
+                    "source":    task["source"],
+                    "citations": task["citations"],
+                }
 
     # Preserve display order
     ordered = [agent_results[t["name"]] for t in agent_tasks if t["name"] in agent_results]
@@ -445,16 +447,15 @@ def build_analysis_llm(syllabus: SyllabusInput, data: dict) -> dict | None:
         f"{a['name']}:\n" + "\n".join(f"  - {f}" for f in a["findings"])
         for a in ordered
     )
-    JSON_RECS = '[{"rank": 1, "priority": "high"|"medium"|"low", "action": "...", "rationale": "...", "effort": "..."}, ...]'
+    JSON_RECS = '[{"rank":1,"priority":"high","action":"...","rationale":"...","effort":"Low — 15 min"}, ...]'
     recs_raw = _claude(
         system=(
-            "You are the Feedback Agent for a faculty course co-design system. "
-            "Review all agent findings and produce exactly 5 prioritized improvement recommendations. "
-            "Priority: high = critical gap or compliance issue; medium = significant improvement; low = enhancement. "
-            "Effort format examples: 'Low — 15 min', 'Medium — 2 lectures + 1 assignment', 'High — project design required'. "
-            f"Respond ONLY with a valid JSON array of exactly 5 objects: {JSON_RECS}"
+            "Synthesize these course analysis findings into exactly 5 ranked improvement recommendations. "
+            "priority: high=critical gap/compliance, medium=significant improvement, low=enhancement. "
+            "effort examples: 'Low — 15 min', 'Medium — 2 lectures', 'High — project design required'. "
+            f"Reply ONLY with a JSON array of exactly 5 objects: {JSON_RECS}"
         ),
-        user=f"COURSE: {syllabus.title}\n\nAGENT FINDINGS:\n{findings_block}\n\nProduce 5 recommendations, highest priority first.",
+        user=f"Course: {syllabus.title}\n\n{findings_block}",
         model=FEEDBACK_MODEL,
     )
     recs = _parse_json(recs_raw, None)
@@ -598,24 +599,10 @@ def _refine_llm(syllabus: SyllabusInput, selected_ranks: list[int], recommendati
         f"#{r['rank']}: {r['action']} — {r.get('rationale', '')}"
         for r in selected
     )
-    JSON_IMP = (
-        '[{"rank": N, "action": "...", "where": "specific syllabus location", '
-        '"steps": ["step 1", "step 2", "step 3"], '
-        '"suggested_text": "ready-to-copy paragraph", '
-        '"source": "authoritative citation", "effort": "time estimate"}, ...]'
-    )
+    JSON_IMP = '[{"rank":N,"action":"...","where":"syllabus location","steps":["step 1","step 2","step 3"],"suggested_text":"copy-ready text","source":"citation","effort":"estimate"}, ...]'
     raw = _claude(
-        system=(
-            "You are a curriculum design expert providing specific revision guidance for faculty. "
-            "For each selected improvement, provide where in the syllabus to add it, "
-            "3 concrete implementation steps, and ready-to-copy suggested text. "
-            f"Respond ONLY with a valid JSON array: {JSON_IMP}"
-        ),
-        user=(
-            f"FACULTY SYLLABUS:\n{_syllabus_text(syllabus)}\n\n"
-            f"IMPROVEMENTS TO DETAIL:\n{recs_text}\n\n"
-            "For each improvement provide specific where-to-add location, 3 steps, and copy-ready suggested text."
-        ),
+        system=f"For each improvement: name where in the syllabus to add it, give 3 concrete steps, and write copy-ready suggested text. Reply ONLY with a JSON array: {JSON_IMP}",
+        user=f"Syllabus:\n{_syllabus_text(syllabus)}\n\nImprovements:\n{recs_text}",
         model=FEEDBACK_MODEL,
     )
     improvements = _parse_json(raw, None)
