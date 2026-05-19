@@ -134,7 +134,7 @@ export default function App() {
       <header className="header">
         <div className="header-logo">🎓</div>
         <div>
-          <h1>Faculty Course Co-Design System</h1>
+          <h1>Compass</h1>
           <p>AI-powered curriculum alignment for higher education faculty</p>
         </div>
         <span className="header-badge">Pilot: CS Algorithms</span>

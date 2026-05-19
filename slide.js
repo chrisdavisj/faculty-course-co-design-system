@@ -2,7 +2,7 @@ const pptxgen = require("pptxgenjs");
 
 const pres = new pptxgen();
 pres.layout = "LAYOUT_16x9";
-pres.title = "Faculty Course Co-Design System";
+pres.title = "Compass";
 
 const slide = pres.addSlide();
 slide.background = { color: "F0F4F8" };
@@ -16,7 +16,7 @@ slide.addShape(pres.shapes.RECTANGLE, {
   x: 0, y: 0, w: 10, h: 1.05,
   fill: { color: "1e3a8a" }, line: { color: "1e3a8a" },
 });
-slide.addText("Faculty Course Co-Design System", {
+slide.addText("Compass", {
   x: 0.4, y: 0.07, w: 9.2, h: 0.52,
   fontSize: 26, bold: true, color: "FFFFFF", fontFace: "Calibri", margin: 0,
 });
@@ -176,7 +176,7 @@ slide.addShape(pres.shapes.RECTANGLE, {
   fill: { color: "1e3a8a" }, line: { color: "1e3a8a" },
 });
 slide.addText(
-  "Pilot: CS Algorithms  │  Data: Credential Registry (CTDL)  │  Stack: FastAPI · React · Claude Haiku  │  Wharton/Gates Build-a-thon 2026",
+  "Compass  │  Pilot: CS Algorithms  │  Data: Credential Registry (CTDL)  │  Stack: FastAPI · React · Claude Haiku  │  Wharton/Gates Build-a-thon 2026",
   {
     x: 0.3, y: 4.93, w: 9.4, h: 0.66,
     fontSize: 11, color: "CADCFC", fontFace: "Calibri",
@@ -184,6 +184,6 @@ slide.addText(
   }
 );
 
-pres.writeFile({ fileName: "C:\\text\\Build-a-thon\\demo\\Faculty Co-Design Demo Slide.pptx" })
+pres.writeFile({ fileName: "C:\\text\\Build-a-thon\\demo\\Compass Demo Slide.pptx" })
   .then(() => console.log("Slide written."))
   .catch(e => { console.error(e); process.exit(1); });

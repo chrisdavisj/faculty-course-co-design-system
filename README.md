@@ -1,4 +1,4 @@
-# Faculty Course Co-Design System
+# Compass
 
 > AI-powered curriculum alignment for higher education faculty
 
@@ -211,6 +211,6 @@ This prototype was built in response to the Wharton/Gates Build-A-Thon challenge
 
 > *"How can AI help build a continuous, grounded view of its economic impact? Which signals best capture shifts in jobs, skills, and productivity — and how can they be connected into an evolving picture?"*
 
-The Faculty Course Co-Design System treats higher education curricula as a live signal of the gap between what the workforce needs and what institutions are teaching. By connecting syllabi to real labor market competency data via the Credential Registry, it demonstrates one concrete path from fragmented signals to structured, decision-ready insight — and puts that insight directly in the hands of the people who can act on it: faculty.
+Compass treats higher education curricula as a live signal of the gap between what the workforce needs and what institutions are teaching. By connecting syllabi to real labor market competency data via the Credential Registry, it demonstrates one concrete path from fragmented signals to structured, decision-ready insight — and puts that insight directly in the hands of the people who can act on it: faculty.
 
 **Team:** Wharton Build-A-Thon 2026 · CS Algorithms pilot · May 19, 2026
