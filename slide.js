@@ -54,7 +54,7 @@ addCard(col1X, col1W, "HOW IT WORKS");
 const stepColors = ["1e3a8a", "2563eb", "3b82f6", "16a34a", "15803d"];
 const steps = [
   "Faculty submits syllabus",
-  "6 AI agents analyze in parallel",
+  "6 Claude agents analyze in parallel",
   "Feedback Agent ranks findings",
   "Select recs → get revision steps",
   "Export targeted edits to .docx",
@@ -86,7 +86,7 @@ steps.forEach((step, i) => {
   }
 });
 
-// ── COLUMN 2: 6 SPECIALIZED AGENTS + LIVE DATA BADGE ────────────────────────
+// ── COLUMN 2: 6 SPECIALIZED AGENTS ──────────────────────────────────────────
 addCard(col2X, col2W, "6 SPECIALIZED AGENTS");
 
 const agents = [
@@ -101,11 +101,21 @@ const agents = [
 slide.addText(
   agents.map((a, i) => ({ text: a, options: { breakLine: i < agents.length - 1 } })),
   {
-    x: col2X + 0.17, y: cardY + 0.50, w: col2W - 0.25, h: 2.72,
+    x: col2X + 0.17, y: cardY + 0.50, w: col2W - 0.25, h: 2.42,
     fontSize: 12, color: "374151", fontFace: "Calibri",
     paraSpaceAfter: 5, valign: "top", margin: 0,
   }
 );
+
+// Claude Haiku badge
+slide.addShape(pres.shapes.RECTANGLE, {
+  x: col2X + 0.17, y: cardY + 2.68, w: col2W - 0.25, h: 0.42,
+  fill: { color: "EDE9FE" }, line: { color: "C4B5FD", width: 1 },
+});
+slide.addText("🤖  Powered by Claude Haiku\nAll 6 agents · graceful keyword fallback", {
+  x: col2X + 0.22, y: cardY + 2.70, w: col2W - 0.35, h: 0.38,
+  fontSize: 9.5, color: "5b21b6", fontFace: "Calibri", valign: "middle", margin: 0,
+});
 
 // Live data badge
 slide.addShape(pres.shapes.RECTANGLE, {
@@ -166,7 +176,7 @@ slide.addShape(pres.shapes.RECTANGLE, {
   fill: { color: "1e3a8a" }, line: { color: "1e3a8a" },
 });
 slide.addText(
-  "Pilot: CS Algorithms  │  Data: Credential Registry (CTDL)  │  Stack: FastAPI + React  │  Wharton/Gates Build-a-thon 2026",
+  "Pilot: CS Algorithms  │  Data: Credential Registry (CTDL)  │  Stack: FastAPI · React · Claude Haiku  │  Wharton/Gates Build-a-thon 2026",
   {
     x: 0.3, y: 4.93, w: 9.4, h: 0.66,
     fontSize: 11, color: "CADCFC", fontFace: "Calibri",
