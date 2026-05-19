@@ -27,7 +27,7 @@ flowchart TD
 
     FORM -->|POST /api/analyze| AGENTS
 
-    subgraph AGENTS [Round 1 — Six Agents in Parallel]
+    subgraph AGENTS [Round 1 — Six Claude Haiku Agents in Parallel]
         direction LR
         T[🔍 Transparency]
         LM[📊 Labor Market]
@@ -43,7 +43,7 @@ flowchart TD
     CR -.->|ceterms:teaches\nceterms:targetCompetency| T & LM & CO
     SRC -.-> US & AS & PO
 
-    AGENTS --> FB[🎯 Feedback Agent\nPrioritizes & ranks findings]
+    AGENTS --> FB[🎯 Feedback Agent\nClaude Haiku · prioritizes & ranks]
     FB --> REC[Top 5 recommendations\nHIGH · MEDIUM · LOW]
 
     REC -->|Faculty selects · POST /api/refine| IMP[Targeted Improvements\nwhere · steps · suggested text]
