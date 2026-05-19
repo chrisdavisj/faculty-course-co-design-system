@@ -97,6 +97,7 @@ Alignment scoring uses keyword overlap against `ceterms:teaches` (courses) and `
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.11 · FastAPI · uvicorn |
+| LLM | Anthropic Claude (Haiku 4.5) — all 6 agents + Feedback Agent; keyword fallback when key absent |
 | Data fetching | httpx (synchronous, loaded at startup via lifespan) |
 | Document export | python-docx |
 | Frontend | React 18 · TypeScript · Vite |
@@ -111,6 +112,11 @@ Alignment scoring uses keyword overlap against `ceterms:teaches` (courses) and `
 # Backend — install dependencies
 cd demo/backend
 pip install -r requirements.txt
+
+# Backend — configure API key (copy once, never commit)
+cp .env.example .env
+# Edit .env and paste your key from https://console.anthropic.com/settings/keys
+# Without a key the backend falls back to keyword scoring (no LLM calls)
 
 # Backend — start (fetches Credential Registry data at startup, ~10 sec)
 uvicorn main:app --host 127.0.0.1 --port 8000
@@ -141,7 +147,8 @@ demo/
 ├── backend/
 │   ├── main.py                  # FastAPI app, lifespan loader, all endpoints
 │   ├── credential_registry.py   # CTDL fetch, tokenize, strength_of_fit, coverage_pct
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── .env.example             # Copy to .env and add ANTHROPIC_API_KEY
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx              # State management, API calls, three-round flow
@@ -184,7 +191,8 @@ Following the three-tier boundary model from the O'Reilly spec guidance:
 
 **Build-a-thon scope**
 - Competency alignment uses keyword overlap (`strength_of_fit`), not semantic embeddings — fast and deterministic, but coarse
-- Agents for University Strategy, Assessment, and Policy use curated example findings rather than live data; the CR-backed agents (Transparency, Labor Market, Competencies) use real data
+- When `ANTHROPIC_API_KEY` is set, all six agents and the Feedback Agent call Claude (Haiku 4.5) for generative, syllabus-specific findings; without a key the system falls back to keyword scoring with curated example findings
+- Agents for University Strategy, Assessment, and Policy reference curated context rather than live data; the CR-backed agents (Transparency, Labor Market, Competencies) use real Credential Registry data
 - Pilot is scoped to CS algorithms courses; peer course and job CTIDs are hardcoded
 
 **Toward a full system**

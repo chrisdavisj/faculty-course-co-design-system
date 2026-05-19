@@ -3,22 +3,74 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import concurrent.futures
 import io
+import json
+import os
 import time
 from datetime import date
 
+import anthropic
+from dotenv import load_dotenv
+load_dotenv()
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 import credential_registry as cr
 
+# ── LLM setup ─────────────────────────────────────────────────────────────────
+
+AGENT_MODEL    = "claude-haiku-4-5-20251001"
+FEEDBACK_MODEL = "claude-haiku-4-5-20251001"
+
+_llm: anthropic.Anthropic | None = None
 _cr_data: dict = {"job": None, "courses": []}
+
+
+def _init_llm():
+    global _llm
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if key:
+        _llm = anthropic.Anthropic(api_key=key)
+        print("[LLM] Anthropic client initialized.")
+    else:
+        print("[LLM] ANTHROPIC_API_KEY not set — keyword scoring fallback active.")
+
+
+def _claude(system: str, user: str, model: str = AGENT_MODEL) -> str | None:
+    if not _llm:
+        return None
+    try:
+        msg = _llm.messages.create(
+            model=model,
+            max_tokens=1024,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return msg.content[0].text
+    except Exception as exc:
+        print(f"[LLM] Error calling {model}: {exc}")
+        return None
+
+
+def _parse_json(text: str | None, default):
+    if not text:
+        return default
+    try:
+        t = text.strip()
+        if t.startswith("```"):
+            t = "\n".join(t.split("\n")[1:])
+            t = t.rsplit("```", 1)[0]
+        return json.loads(t.strip())
+    except Exception:
+        return default
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _cr_data
+    _init_llm()
     _cr_data = cr.load()
     yield
 
@@ -257,8 +309,173 @@ def build_analysis(syllabus: SyllabusInput, data: dict) -> dict:
     }
 
 
+def _syllabus_text(s: SyllabusInput) -> str:
+    return (
+        f"Title: {s.title}\n"
+        f"Description: {s.description}\n"
+        f"Competencies: {s.competencies}\n"
+        f"Readings: {s.readings}\n"
+        f"Assignments: {s.assignments}"
+    )
+
+
+def build_analysis_llm(syllabus: SyllabusInput, data: dict) -> dict | None:
+    """Run 6 agents + Feedback Agent via Claude. Returns None if LLM unavailable or fails."""
+    if not _llm:
+        return None
+
+    job     = data.get("job")
+    courses = data.get("courses", [])
+
+    syl     = _syllabus_text(syllabus)
+    courses_text = "\n".join(
+        f"- {c['name']} @ {c['institution'] or '?'}: {'; '.join(c['competencies'][:6])}"
+        for c in courses if c["competencies"]
+    ) or "No peer course data available."
+    job_text = (
+        f"{job['name']}: {'; '.join(job['competencies'])}"
+        if job else "No job profile data available."
+    )
+    all_comps = list(dict.fromkeys(c for course in courses for c in course["competencies"]))
+    comps_text = "\n".join(f"- {c}" for c in all_comps[:20]) or "No competency data available."
+
+    JSON_FINDINGS = '{"summary": "...", "findings": ["...", "...", "...", "..."]}'
+
+    agent_tasks = [
+        {
+            "name": "Transparency Agent", "icon": "🔍",
+            "source": "Credential Registry — peer course data",
+            "citations": [{"label": c["name"] or c["ctid"], "uri": c["uri"]}
+                          for c in courses if c["competencies"]][:3],
+            "system": (
+                "You are the Transparency Agent for a faculty course co-design system. "
+                "Benchmark the syllabus against peer courses from the Credential Registry. "
+                "Identify topics peers cover that this course lacks, and any unique strengths. "
+                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
+            ),
+            "user": f"FACULTY SYLLABUS:\n{syl}\n\nPEER COURSES (Credential Registry):\n{courses_text}\n\nProvide 3-4 specific, concrete findings.",
+        },
+        {
+            "name": "Labor Market Agent", "icon": "📊",
+            "source": "Credential Registry — Computer Programmer 1 job profile",
+            "citations": [{"label": job["name"], "uri": job["uri"]}] if job else [],
+            "system": (
+                "You are the Labor Market Agent for a faculty course co-design system. "
+                "Analyze how well this syllabus prepares students for real job competency requirements. "
+                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
+            ),
+            "user": f"FACULTY SYLLABUS:\n{syl}\n\nJOB PROFILE (Credential Registry — Computer Programmer 1):\n{job_text}\n\nProvide 3-4 findings about coverage gaps and strengths.",
+        },
+        {
+            "name": "Competencies Agent", "icon": "🎯",
+            "source": "Credential Registry competency alignment",
+            "citations": [{"label": c["name"] or c["ctid"], "uri": c["uri"]}
+                          for c in courses[:3] if c["competencies"]],
+            "system": (
+                "You are the Competencies Agent for a faculty course co-design system. "
+                "Assess alignment between the syllabus and Credential Registry competencies "
+                "using HIGH/MEDIUM/LOW strength-of-fit language. "
+                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
+            ),
+            "user": f"FACULTY SYLLABUS:\n{syl}\n\nCREDENTIAL REGISTRY COMPETENCIES ({len(courses)} peer courses):\n{comps_text}\n\nProvide 3-4 findings naming specific HIGH/MEDIUM/LOW competencies.",
+        },
+        {
+            "name": "University Strategy Agent", "icon": "🏛️",
+            "source": "University Strategic Plan 2024–2028",
+            "citations": [],
+            "system": (
+                "You are the University Strategy Agent for a faculty course co-design system. "
+                "Identify opportunities to align the course with university strategic priorities: "
+                "experiential learning, industry partnerships, inclusive pedagogy, and research integration. "
+                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
+            ),
+            "user": f"FACULTY SYLLABUS:\n{syl}\n\nProvide 2-3 specific strategic alignment opportunities.",
+        },
+        {
+            "name": "Assessment Agent", "icon": "✅",
+            "source": "Assessment best practices (ACM SIGCSE 2024)",
+            "citations": [],
+            "system": (
+                "You are the Assessment Agent for a faculty course co-design system. "
+                "Evaluate the assessment design for AI-circumvention risk and learning effectiveness. "
+                "Suggest specific AI-resistant, engaging alternatives. "
+                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
+            ),
+            "user": f"FACULTY SYLLABUS:\n{syl}\n\nProvide 3-4 findings identifying high-risk assessments and concrete alternatives.",
+        },
+        {
+            "name": "Policy Agent", "icon": "📋",
+            "source": "University Academic Policy Office",
+            "citations": [],
+            "system": (
+                "You are the Policy Agent for a faculty course co-design system. "
+                "Check the syllabus for compliance gaps: AI use policy, academic integrity, "
+                "accessibility, and grading transparency. "
+                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
+            ),
+            "user": f"FACULTY SYLLABUS:\n{syl}\n\nProvide 2-3 policy compliance findings.",
+        },
+    ]
+
+    # Run all 6 agents in parallel
+    agent_results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {pool.submit(_claude, t["system"], t["user"]): t for t in agent_tasks}
+        for future in concurrent.futures.as_completed(futures):
+            task = futures[future]
+            parsed = _parse_json(future.result(), None)
+            if parsed and isinstance(parsed.get("findings"), list):
+                agent_results[task["name"]] = {
+                    "name":      task["name"],
+                    "icon":      task["icon"],
+                    "summary":   parsed.get("summary", f"{task['name']} complete"),
+                    "findings":  parsed["findings"],
+                    "source":    task["source"],
+                    "citations": task["citations"],
+                }
+            else:
+                print(f"[LLM] {task['name']} returned unparseable output — aborting LLM path.")
+                return None
+
+    # Preserve display order
+    ordered = [agent_results[t["name"]] for t in agent_tasks if t["name"] in agent_results]
+
+    # Feedback Agent: synthesize all findings into ranked recommendations
+    findings_block = "\n\n".join(
+        f"{a['name']}:\n" + "\n".join(f"  - {f}" for f in a["findings"])
+        for a in ordered
+    )
+    JSON_RECS = '[{"rank": 1, "priority": "high"|"medium"|"low", "action": "...", "rationale": "...", "effort": "..."}, ...]'
+    recs_raw = _claude(
+        system=(
+            "You are the Feedback Agent for a faculty course co-design system. "
+            "Review all agent findings and produce exactly 5 prioritized improvement recommendations. "
+            "Priority: high = critical gap or compliance issue; medium = significant improvement; low = enhancement. "
+            "Effort format examples: 'Low — 15 min', 'Medium — 2 lectures + 1 assignment', 'High — project design required'. "
+            f"Respond ONLY with a valid JSON array of exactly 5 objects: {JSON_RECS}"
+        ),
+        user=f"COURSE: {syllabus.title}\n\nAGENT FINDINGS:\n{findings_block}\n\nProduce 5 recommendations, highest priority first.",
+        model=FEEDBACK_MODEL,
+    )
+    recs = _parse_json(recs_raw, None)
+    if not isinstance(recs, list) or len(recs) < 3:
+        print("[LLM] Feedback Agent failed — aborting LLM path.")
+        return None
+
+    recs = recs[:5]
+    for i, r in enumerate(recs):
+        r["rank"] = i + 1
+        if r.get("priority") not in ("high", "medium", "low"):
+            r["priority"] = "medium"
+
+    return {"agents": ordered, "feedback": {"top_recommendations": recs}}
+
+
 @app.post("/api/analyze")
 def analyze_syllabus(syllabus: SyllabusInput):
+    result = build_analysis_llm(syllabus, _cr_data)
+    if result:
+        return result
     time.sleep(1.5)
     return build_analysis(syllabus, _cr_data)
 
@@ -266,6 +483,7 @@ def analyze_syllabus(syllabus: SyllabusInput):
 class RefineInput(BaseModel):
     syllabus: SyllabusInput
     selected_ranks: list[int]
+    recommendations: list[dict] = []
 
 
 TARGETED_IMPROVEMENTS = {
@@ -368,8 +586,60 @@ TARGETED_IMPROVEMENTS = {
 }
 
 
+def _refine_llm(syllabus: SyllabusInput, selected_ranks: list[int], recommendations: list[dict]) -> list[dict] | None:
+    if not _llm or not selected_ranks:
+        return None
+
+    selected = [r for r in recommendations if r.get("rank") in selected_ranks]
+    if not selected:
+        return None
+
+    recs_text = "\n".join(
+        f"#{r['rank']}: {r['action']} — {r.get('rationale', '')}"
+        for r in selected
+    )
+    JSON_IMP = (
+        '[{"rank": N, "action": "...", "where": "specific syllabus location", '
+        '"steps": ["step 1", "step 2", "step 3"], '
+        '"suggested_text": "ready-to-copy paragraph", '
+        '"source": "authoritative citation", "effort": "time estimate"}, ...]'
+    )
+    raw = _claude(
+        system=(
+            "You are a curriculum design expert providing specific revision guidance for faculty. "
+            "For each selected improvement, provide where in the syllabus to add it, "
+            "3 concrete implementation steps, and ready-to-copy suggested text. "
+            f"Respond ONLY with a valid JSON array: {JSON_IMP}"
+        ),
+        user=(
+            f"FACULTY SYLLABUS:\n{_syllabus_text(syllabus)}\n\n"
+            f"IMPROVEMENTS TO DETAIL:\n{recs_text}\n\n"
+            "For each improvement provide specific where-to-add location, 3 steps, and copy-ready suggested text."
+        ),
+        model=FEEDBACK_MODEL,
+    )
+    improvements = _parse_json(raw, None)
+    if not isinstance(improvements, list):
+        return None
+
+    # Normalise and ensure rank field is set
+    for imp in improvements:
+        if "steps" not in imp or not isinstance(imp["steps"], list):
+            imp["steps"] = []
+        imp.setdefault("where", "See syllabus")
+        imp.setdefault("suggested_text", "")
+        imp.setdefault("source", "AI-generated guidance")
+        imp.setdefault("effort", "")
+
+    return improvements
+
+
 @app.post("/api/refine")
 def refine(body: RefineInput):
+    llm_result = _refine_llm(body.syllabus, body.selected_ranks, body.recommendations)
+    if llm_result is not None:
+        return {"improvements": llm_result}
+    # Fallback: static improvements dict
     time.sleep(1.0)
     improvements = [
         TARGETED_IMPROVEMENTS[r]

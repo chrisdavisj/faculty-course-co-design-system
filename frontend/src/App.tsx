@@ -77,7 +77,11 @@ export default function App() {
       const res = await fetch('/api/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ syllabus, selected_ranks: Array.from(selected) }),
+        body: JSON.stringify({
+          syllabus,
+          selected_ranks: Array.from(selected),
+          recommendations: result?.feedback.top_recommendations ?? [],
+        }),
       })
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
       const data = await res.json()
