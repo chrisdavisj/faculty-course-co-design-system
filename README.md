@@ -28,7 +28,7 @@ flowchart TD
 
     FORM -->|POST /api/analyze| AGENTS
 
-    subgraph AGENTS [Round 1 — Six Agents in Parallel]
+    subgraph AGENTS [Round 1 — Six Claude Haiku Agents in Parallel]
         direction LR
         T[🔍 Transparency]
         LM[📊 Labor Market]
@@ -44,7 +44,7 @@ flowchart TD
     CR -.->|ceterms:teaches\nceterms:targetCompetency| T & LM & CO
     SRC -.-> US & AS & PO
 
-    AGENTS --> FB[🎯 Feedback Agent\nPrioritizes & ranks findings]
+    AGENTS --> FB[🎯 Feedback Agent\nClaude Haiku · prioritizes & ranks]
     FB --> REC[Top 5 recommendations\nHIGH · MEDIUM · LOW]
 
     REC -->|Faculty selects · POST /api/refine| IMP[Targeted Improvements\nwhere · steps · suggested text]
@@ -54,14 +54,14 @@ flowchart TD
 
 ### The Six Agents
 
-| Agent | Role | Data Source |
-|-------|------|-------------|
-| **Transparency** | Peer benchmarking — what comparable courses cover and where yours diverges | Credential Registry peer course records |
-| **Labor Market** | Gap analysis against real job competency requirements | Credential Registry job profile (Computer Programmer 1) |
-| **Competencies** | Alignment scoring across authoritative competency frameworks using CTDL `strengthOfFit` | Credential Registry course competencies (CTDL) |
-| **University Strategy** | Opportunities to advance institutional goals (experiential learning, industry partnerships) | University Strategic Plan 2024–2028 |
-| **Assessment** | AI-circumvention risk in current assessments; AI-resistant alternatives | ACM SIGCSE 2024 best practices |
-| **Policy** | Compliance gap scoring against university policy requirements | University Academic Policy Office |
+| Agent                   | Role                                                                                        | Data Source                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Transparency**        | Peer benchmarking — what comparable courses cover and where yours diverges                  | Credential Registry peer course records                 |
+| **Labor Market**        | Gap analysis against real job competency requirements                                       | Credential Registry job profile (Computer Programmer 1) |
+| **Competencies**        | Alignment scoring across authoritative competency frameworks using CTDL `strengthOfFit`     | Credential Registry course competencies (CTDL)          |
+| **University Strategy** | Opportunities to advance institutional goals (experiential learning, industry partnerships) | University Strategic Plan 2024–2028                     |
+| **Assessment**          | AI-circumvention risk in current assessments; AI-resistant alternatives                     | ACM SIGCSE 2024 best practices                          |
+| **Policy**              | Compliance gap scoring against university policy requirements                               | University Academic Policy Office                       |
 
 A **Feedback Agent** then prioritizes and synthesizes findings into ranked recommendations labeled HIGH / MEDIUM / LOW.
 
@@ -95,15 +95,15 @@ Alignment scoring uses keyword overlap against `ceterms:teaches` (courses) and `
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.11 · FastAPI · uvicorn |
-| LLM | Anthropic Claude (Haiku 4.5) — all 6 agents + Feedback Agent; keyword fallback when key absent |
-| Data fetching | httpx (synchronous, loaded at startup via lifespan) |
-| Document export | python-docx |
-| Frontend | React 18 · TypeScript · Vite |
-| Styling | Plain CSS (no UI framework) |
-| Dev proxy | Vite → FastAPI on port 8000 |
+| Layer           | Technology                                                                                     |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| Backend         | Python 3.11 · FastAPI · uvicorn                                                                |
+| LLM             | Anthropic Claude (Haiku 4.5) — all 6 agents + Feedback Agent; keyword fallback when key absent |
+| Data fetching   | httpx (synchronous, loaded at startup via lifespan)                                            |
+| Document export | python-docx                                                                                    |
+| Frontend        | React 18 · TypeScript · Vite                                                                   |
+| Styling         | Plain CSS (no UI framework)                                                                    |
+| Dev proxy       | Vite → FastAPI on port 8000                                                                    |
 
 ---
 
@@ -218,11 +218,11 @@ COMPASS treats higher education curricula as a live signal of the gap between wh
 
 ## Contributors
 
-| Contributor | GitHub username | Email / affiliation |
-|-------------|-----------------|---------------------|
-| Neh Majmudar | `Lewy09-Tm25` | `nehmajmudar@gmail.com` |
-| Jeff Grann | `jeff-grann` | `jgrann@credentialengine.org` |
-| Aankit Patel | `aankit` | `aankit.patel@cuny.edu` |
-| Chris Davis Jaldi | `chrisdavisj` | `jaldi.2@wright.edu` |
-| Leticia | Not provided | Gates Foundation |
-| Kristin A. Linn | Not provided | `klinn@upenn.edu` |
+| Contributor       | GitHub username | Email / affiliation           |
+| ----------------- | --------------- | ----------------------------- |
+| Aankit Patel      | `aankit`        | `aankit.patel@cuny.edu`       |
+| Chris Davis Jaldi | `chrisdavisj`   | `jaldi.2@wright.edu`          |
+| Jeff Grann        | `jeff-grann`    | `jgrann@credentialengine.org` |
+| Kristin Linn      | Not provided    | `klinn@upenn.edu`             |
+| Leticia           | Not provided    | Gates Foundation              |
+| Neh Majmudar      | `Lewy09-Tm25`   | `nehmajmudar@gmail.com`       |

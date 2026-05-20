@@ -1,3 +1,7 @@
+import credential_registry as cr
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt, RGBColor, Inches
+from docx import Document
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,15 +17,11 @@ from datetime import date
 import anthropic
 from dotenv import load_dotenv
 load_dotenv()
-from docx import Document
-from docx.shared import Pt, RGBColor, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-import credential_registry as cr
 
 # ── LLM setup ─────────────────────────────────────────────────────────────────
 
-AGENT_MODEL    = "claude-haiku-4-5-20251001"
+AGENT_MODEL = "claude-haiku-4-5-20251001"
 FEEDBACK_MODEL = "claude-haiku-4-5-20251001"
 
 _llm: anthropic.Anthropic | None = None
@@ -57,14 +57,38 @@ def _claude(system: str, user: str, model: str = AGENT_MODEL) -> str | None:
 def _parse_json(text: str | None, default):
     if not text:
         return default
+    # 1. Try direct parse
     try:
-        t = text.strip()
-        if t.startswith("```"):
-            t = "\n".join(t.split("\n")[1:])
-            t = t.rsplit("```", 1)[0]
-        return json.loads(t.strip())
+        return json.loads(text.strip())
     except Exception:
-        return default
+        pass
+    # 2. Strip markdown code fences
+    t = text.strip()
+    if t.startswith("```"):
+        t = "\n".join(t.split("\n")[1:])
+        t = t.rsplit("```", 1)[0].strip()
+    try:
+        return json.loads(t)
+    except Exception:
+        pass
+    # 3. Extract first JSON object or array via brace/bracket matching
+    import re
+    for opener, closer in [('{', '}'), ('[', ']')]:
+        m = re.search(re.escape(opener), t)
+        if not m:
+            continue
+        depth, start = 0, m.start()
+        for i, ch in enumerate(t[start:], start):
+            if ch == opener:
+                depth += 1
+            elif ch == closer:
+                depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(t[start:i + 1])
+                except Exception:
+                    break
+    return default
 
 
 @asynccontextmanager
@@ -75,7 +99,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Faculty Course Co-Design System", lifespan=lifespan)
+app = FastAPI(title="COMPASS", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -117,7 +141,8 @@ def build_analysis(syllabus: SyllabusInput, data: dict) -> dict:
 
         if high:
             t_findings.append(
-                f"Strong peer alignment: {', '.join(f'{l} ({p}%)' for l, p, _ in high[:2])}"
+                f"Strong peer alignment: {', '.join(f'{l} ({p}%)' for l,
+                                                    p, _ in high[:2])}"
             )
         for label, pct, c in low[:2]:
             gaps = [comp for comp in c["competencies"]
@@ -146,17 +171,21 @@ def build_analysis(syllabus: SyllabusInput, data: dict) -> dict:
     if job:
         job_comps = job["competencies"]
         lm_citations.append({"label": job["name"], "uri": job["uri"]})
-        covered = [c for c in job_comps if cr.strength_of_fit(faculty_text, c) in ("HIGH", "MEDIUM")]
-        gaps    = [c for c in job_comps if cr.strength_of_fit(faculty_text, c) == "LOW"]
+        covered = [c for c in job_comps if cr.strength_of_fit(
+            faculty_text, c) in ("HIGH", "MEDIUM")]
+        gaps = [c for c in job_comps if cr.strength_of_fit(
+            faculty_text, c) == "LOW"]
         pct = round(100 * len(covered) / len(job_comps)) if job_comps else 0
         lm_findings.append(
             f"{pct}% of '{job['name']}' competencies addressed in syllabus "
             f"({len(covered)} of {len(job_comps)})"
         )
         if gaps:
-            lm_findings.append(f"Job competency gaps (LOW alignment): {'; '.join(gaps[:3])}")
+            lm_findings.append(
+                f"Job competency gaps (LOW alignment): {'; '.join(gaps[:3])}")
         if covered:
-            lm_findings.append(f"Well-covered job skills: {'; '.join(covered[:3])}")
+            lm_findings.append(
+                f"Well-covered job skills: {'; '.join(covered[:3])}")
         lm_findings.append(
             "Graph traversal (BFS/DFS) appears in 67% of backend engineering job postings — verify coverage"
         )
@@ -172,25 +201,31 @@ def build_analysis(syllabus: SyllabusInput, data: dict) -> dict:
     comp_findings = []
     comp_citations = []
 
-    all_comps = list(dict.fromkeys(c for course in courses for c in course["competencies"]))
+    all_comps = list(dict.fromkeys(
+        c for course in courses for c in course["competencies"]))
     if all_comps:
         overall_pct = cr.coverage_pct(faculty_text, all_comps)
         comp_findings.append(
             f"{overall_pct}% alignment with Credential Registry competencies "
             f"({len(all_comps)} unique across {len(courses)} courses)"
         )
-        high_m = [c for c in all_comps if cr.strength_of_fit(faculty_text, c) == "HIGH"]
-        med_m  = [c for c in all_comps if cr.strength_of_fit(faculty_text, c) == "MEDIUM"]
-        low_m  = [c for c in all_comps if cr.strength_of_fit(faculty_text, c) == "LOW"]
+        high_m = [c for c in all_comps if cr.strength_of_fit(
+            faculty_text, c) == "HIGH"]
+        med_m = [c for c in all_comps if cr.strength_of_fit(
+            faculty_text, c) == "MEDIUM"]
+        low_m = [c for c in all_comps if cr.strength_of_fit(
+            faculty_text, c) == "LOW"]
         if high_m:
             comp_findings.append(f"HIGH fit: {'; '.join(high_m[:2])}")
         if med_m:
             comp_findings.append(f"MEDIUM fit: {'; '.join(med_m[:2])}")
         if low_m:
-            comp_findings.append(f"LOW fit (gaps to address): {'; '.join(low_m[:3])}")
+            comp_findings.append(
+                f"LOW fit (gaps to address): {'; '.join(low_m[:3])}")
         for c in courses[:3]:
             if c["competencies"]:
-                comp_citations.append({"label": c["name"] or c["ctid"], "uri": c["uri"]})
+                comp_citations.append(
+                    {"label": c["name"] or c["ctid"], "uri": c["uri"]})
     else:
         comp_findings = [
             "Strong alignment: sorting, searching, and complexity analysis map to ACM CS2023 core units",
@@ -324,10 +359,10 @@ def build_analysis_llm(syllabus: SyllabusInput, data: dict) -> dict | None:
     if not _llm:
         return None
 
-    job     = data.get("job")
+    job = data.get("job")
     courses = data.get("courses", [])
 
-    syl     = _syllabus_text(syllabus)
+    syl = _syllabus_text(syllabus)
     courses_text = "\n".join(
         f"- {c['name']} @ {c['institution'] or '?'}: {'; '.join(c['competencies'][:6])}"
         for c in courses if c["competencies"]
@@ -336,10 +371,12 @@ def build_analysis_llm(syllabus: SyllabusInput, data: dict) -> dict | None:
         f"{job['name']}: {'; '.join(job['competencies'])}"
         if job else "No job profile data available."
     )
-    all_comps = list(dict.fromkeys(c for course in courses for c in course["competencies"]))
-    comps_text = "\n".join(f"- {c}" for c in all_comps[:20]) or "No competency data available."
+    all_comps = list(dict.fromkeys(
+        c for course in courses for c in course["competencies"]))
+    comps_text = "\n".join(
+        f"- {c}" for c in all_comps[:20]) or "No competency data available."
 
-    JSON_FINDINGS = '{"summary": "...", "findings": ["...", "...", "...", "..."]}'
+    J = '{"summary":"one sentence","findings":["finding 1","finding 2","finding 3"]}'
 
     agent_tasks = [
         {
@@ -347,80 +384,52 @@ def build_analysis_llm(syllabus: SyllabusInput, data: dict) -> dict | None:
             "source": "Credential Registry — peer course data",
             "citations": [{"label": c["name"] or c["ctid"], "uri": c["uri"]}
                           for c in courses if c["competencies"]][:3],
-            "system": (
-                "You are the Transparency Agent for a faculty course co-design system. "
-                "Benchmark the syllabus against peer courses from the Credential Registry. "
-                "Identify topics peers cover that this course lacks, and any unique strengths. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nPEER COURSES (Credential Registry):\n{courses_text}\n\nProvide 3-4 specific, concrete findings.",
+            "system": f"Benchmark this syllabus against peer courses. Name topics peers cover that this course lacks, and any unique strengths. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}\n\nPeer courses:\n{courses_text}",
         },
         {
             "name": "Labor Market Agent", "icon": "📊",
             "source": "Credential Registry — Computer Programmer 1 job profile",
             "citations": [{"label": job["name"], "uri": job["uri"]}] if job else [],
-            "system": (
-                "You are the Labor Market Agent for a faculty course co-design system. "
-                "Analyze how well this syllabus prepares students for real job competency requirements. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nJOB PROFILE (Credential Registry — Computer Programmer 1):\n{job_text}\n\nProvide 3-4 findings about coverage gaps and strengths.",
+            "system": f"Identify how well this syllabus covers job competency requirements. Note specific gaps and strengths. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}\n\nJob profile:\n{job_text}",
         },
         {
             "name": "Competencies Agent", "icon": "🎯",
             "source": "Credential Registry competency alignment",
             "citations": [{"label": c["name"] or c["ctid"], "uri": c["uri"]}
                           for c in courses[:3] if c["competencies"]],
-            "system": (
-                "You are the Competencies Agent for a faculty course co-design system. "
-                "Assess alignment between the syllabus and Credential Registry competencies "
-                "using HIGH/MEDIUM/LOW strength-of-fit language. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nCREDENTIAL REGISTRY COMPETENCIES ({len(courses)} peer courses):\n{comps_text}\n\nProvide 3-4 findings naming specific HIGH/MEDIUM/LOW competencies.",
+            "system": f"Rate syllabus-to-competency alignment as HIGH/MEDIUM/LOW for specific competencies. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}\n\nRegistry competencies ({len(courses)} peer courses):\n{comps_text}",
         },
         {
             "name": "University Strategy Agent", "icon": "🏛️",
             "source": "University Strategic Plan 2024–2028",
             "citations": [],
-            "system": (
-                "You are the University Strategy Agent for a faculty course co-design system. "
-                "Identify opportunities to align the course with university strategic priorities: "
-                "experiential learning, industry partnerships, inclusive pedagogy, and research integration. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nProvide 2-3 specific strategic alignment opportunities.",
+            "system": f"Identify 2-3 concrete opportunities to align this course with university priorities: experiential learning, industry partnerships, inclusive pedagogy, research. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}",
         },
         {
             "name": "Assessment Agent", "icon": "✅",
             "source": "Assessment best practices (ACM SIGCSE 2024)",
             "citations": [],
-            "system": (
-                "You are the Assessment Agent for a faculty course co-design system. "
-                "Evaluate the assessment design for AI-circumvention risk and learning effectiveness. "
-                "Suggest specific AI-resistant, engaging alternatives. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nProvide 3-4 findings identifying high-risk assessments and concrete alternatives.",
+            "system": f"Flag high AI-circumvention risk in assessments and suggest specific AI-resistant alternatives. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}",
         },
         {
             "name": "Policy Agent", "icon": "📋",
             "source": "University Academic Policy Office",
             "citations": [],
-            "system": (
-                "You are the Policy Agent for a faculty course co-design system. "
-                "Check the syllabus for compliance gaps: AI use policy, academic integrity, "
-                "accessibility, and grading transparency. "
-                f"Respond ONLY with valid JSON: {JSON_FINDINGS}"
-            ),
-            "user": f"FACULTY SYLLABUS:\n{syl}\n\nProvide 2-3 policy compliance findings.",
+            "system": f"Identify compliance gaps in: AI use policy, academic integrity, accessibility, grading transparency. Reply ONLY with JSON: {J}",
+            "user": f"Syllabus:\n{syl}",
         },
     ]
 
     # Run all 6 agents in parallel
     agent_results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-        futures = {pool.submit(_claude, t["system"], t["user"]): t for t in agent_tasks}
+        futures = {pool.submit(
+            _claude, t["system"], t["user"]): t for t in agent_tasks}
         for future in concurrent.futures.as_completed(futures):
             task = futures[future]
             parsed = _parse_json(future.result(), None)
@@ -434,27 +443,35 @@ def build_analysis_llm(syllabus: SyllabusInput, data: dict) -> dict | None:
                     "citations": task["citations"],
                 }
             else:
-                print(f"[LLM] {task['name']} returned unparseable output — aborting LLM path.")
-                return None
+                print(
+                    f"[LLM] {task['name']} returned unparseable output — using stub.")
+                agent_results[task["name"]] = {
+                    "name":      task["name"],
+                    "icon":      task["icon"],
+                    "summary":   "Analysis complete",
+                    "findings":  ["Agent analysis unavailable — please retry."],
+                    "source":    task["source"],
+                    "citations": task["citations"],
+                }
 
     # Preserve display order
-    ordered = [agent_results[t["name"]] for t in agent_tasks if t["name"] in agent_results]
+    ordered = [agent_results[t["name"]]
+               for t in agent_tasks if t["name"] in agent_results]
 
     # Feedback Agent: synthesize all findings into ranked recommendations
     findings_block = "\n\n".join(
         f"{a['name']}:\n" + "\n".join(f"  - {f}" for f in a["findings"])
         for a in ordered
     )
-    JSON_RECS = '[{"rank": 1, "priority": "high"|"medium"|"low", "action": "...", "rationale": "...", "effort": "..."}, ...]'
+    JSON_RECS = '[{"rank":1,"priority":"high","action":"...","rationale":"...","effort":"Low — 15 min"}, ...]'
     recs_raw = _claude(
         system=(
-            "You are the Feedback Agent for a faculty course co-design system. "
-            "Review all agent findings and produce exactly 5 prioritized improvement recommendations. "
-            "Priority: high = critical gap or compliance issue; medium = significant improvement; low = enhancement. "
-            "Effort format examples: 'Low — 15 min', 'Medium — 2 lectures + 1 assignment', 'High — project design required'. "
-            f"Respond ONLY with a valid JSON array of exactly 5 objects: {JSON_RECS}"
+            "Synthesize these course analysis findings into exactly 5 ranked improvement recommendations. "
+            "priority: high=critical gap/compliance, medium=significant improvement, low=enhancement. "
+            "effort examples: 'Low — 15 min', 'Medium — 2 lectures', 'High — project design required'. "
+            f"Reply ONLY with a JSON array of exactly 5 objects: {JSON_RECS}"
         ),
-        user=f"COURSE: {syllabus.title}\n\nAGENT FINDINGS:\n{findings_block}\n\nProduce 5 recommendations, highest priority first.",
+        user=f"Course: {syllabus.title}\n\n{findings_block}",
         model=FEEDBACK_MODEL,
     )
     recs = _parse_json(recs_raw, None)
@@ -598,24 +615,10 @@ def _refine_llm(syllabus: SyllabusInput, selected_ranks: list[int], recommendati
         f"#{r['rank']}: {r['action']} — {r.get('rationale', '')}"
         for r in selected
     )
-    JSON_IMP = (
-        '[{"rank": N, "action": "...", "where": "specific syllabus location", '
-        '"steps": ["step 1", "step 2", "step 3"], '
-        '"suggested_text": "ready-to-copy paragraph", '
-        '"source": "authoritative citation", "effort": "time estimate"}, ...]'
-    )
+    JSON_IMP = '[{"rank":N,"action":"...","where":"syllabus location","steps":["step 1","step 2","step 3"],"suggested_text":"copy-ready text","source":"citation","effort":"estimate"}, ...]'
     raw = _claude(
-        system=(
-            "You are a curriculum design expert providing specific revision guidance for faculty. "
-            "For each selected improvement, provide where in the syllabus to add it, "
-            "3 concrete implementation steps, and ready-to-copy suggested text. "
-            f"Respond ONLY with a valid JSON array: {JSON_IMP}"
-        ),
-        user=(
-            f"FACULTY SYLLABUS:\n{_syllabus_text(syllabus)}\n\n"
-            f"IMPROVEMENTS TO DETAIL:\n{recs_text}\n\n"
-            "For each improvement provide specific where-to-add location, 3 steps, and copy-ready suggested text."
-        ),
+        system=f"For each improvement: name where in the syllabus to add it, give 3 concrete steps, and write copy-ready suggested text. Reply ONLY with a JSON array: {JSON_IMP}",
+        user=f"Syllabus:\n{_syllabus_text(syllabus)}\n\nImprovements:\n{recs_text}",
         model=FEEDBACK_MODEL,
     )
     improvements = _parse_json(raw, None)
@@ -636,7 +639,8 @@ def _refine_llm(syllabus: SyllabusInput, selected_ranks: list[int], recommendati
 
 @app.post("/api/refine")
 def refine(body: RefineInput):
-    llm_result = _refine_llm(body.syllabus, body.selected_ranks, body.recommendations)
+    llm_result = _refine_llm(
+        body.syllabus, body.selected_ranks, body.recommendations)
     if llm_result is not None:
         return {"improvements": llm_result}
     # Fallback: static improvements dict
@@ -658,8 +662,8 @@ def _hex(r, g, b):
     return RGBColor(r, g, b)
 
 
-NAVY  = _hex(0x1e, 0x3a, 0x8a)
-GRAY  = _hex(0x47, 0x55, 0x69)
+NAVY = _hex(0x1e, 0x3a, 0x8a)
+GRAY = _hex(0x47, 0x55, 0x69)
 GREEN = _hex(0x14, 0x53, 0x2d)
 BLACK = _hex(0x1a, 0x20, 0x2c)
 
@@ -667,7 +671,7 @@ BLACK = _hex(0x1a, 0x20, 0x2c)
 def _h(doc, text, level, color=None, space_before=12, space_after=6):
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(space_before)
-    p.paragraph_format.space_after  = Pt(space_after)
+    p.paragraph_format.space_after = Pt(space_after)
     run = p.add_run(text)
     run.bold = True
     run.font.size = Pt([0, 18, 14, 12, 11][level])
@@ -678,7 +682,7 @@ def _h(doc, text, level, color=None, space_before=12, space_after=6):
 def _body(doc, text, italic=False, color=None):
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after  = Pt(4)
+    p.paragraph_format.space_after = Pt(4)
     run = p.add_run(text)
     run.font.size = Pt(11)
     run.italic = italic
@@ -690,7 +694,7 @@ def _body(doc, text, italic=False, color=None):
 def _label(doc, text):
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(8)
-    p.paragraph_format.space_after  = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
     run = p.add_run(text.upper())
     run.bold = True
     run.font.size = Pt(9)
@@ -701,8 +705,8 @@ def _label(doc, text):
 def _code_block(doc, text):
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after  = Pt(6)
-    p.paragraph_format.left_indent  = Inches(0.3)
+    p.paragraph_format.space_after = Pt(6)
+    p.paragraph_format.left_indent = Inches(0.3)
     run = p.add_run(text)
     run.font.name = "Courier New"
     run.font.size = Pt(10)
@@ -712,7 +716,7 @@ def _code_block(doc, text):
 def _divider(doc):
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(6)
-    p.paragraph_format.space_after  = Pt(6)
+    p.paragraph_format.space_after = Pt(6)
     run = p.add_run("─" * 72)
     run.font.size = Pt(8)
     run.font.color.rgb = _hex(0xcb, 0xd5, 0xe1)
@@ -723,10 +727,10 @@ def build_export_doc(syllabus: SyllabusInput, improvements: list[dict]) -> bytes
 
     # Narrow margins
     for section in doc.sections:
-        section.top_margin    = Inches(1)
+        section.top_margin = Inches(1)
         section.bottom_margin = Inches(1)
-        section.left_margin   = Inches(1.1)
-        section.right_margin  = Inches(1.1)
+        section.left_margin = Inches(1.1)
+        section.right_margin = Inches(1.1)
 
     # ── Cover heading ────────────────────────────────────────────────────────
     p = doc.add_paragraph()
@@ -744,7 +748,8 @@ def build_export_doc(syllabus: SyllabusInput, improvements: list[dict]) -> bytes
 
     p3 = doc.add_paragraph()
     p3.paragraph_format.space_after = Pt(16)
-    r3 = p3.add_run(f"Generated by Faculty Course Co-Design System · {date.today().strftime('%B %d, %Y')}")
+    r3 = p3.add_run(
+        f"Generated by COMPASS · {date.today().strftime('%B %d, %Y')}")
     r3.font.size = Pt(10)
     r3.italic = True
     r3.font.color.rgb = _hex(0x94, 0xa3, 0xb8)
@@ -769,7 +774,8 @@ def build_export_doc(syllabus: SyllabusInput, improvements: list[dict]) -> bytes
     _divider(doc)
 
     # ── Recommended improvements ────────────────────────────────────────────
-    _h(doc, f"Recommended Improvements ({len(improvements)} selected)", 2, color=GREEN)
+    _h(doc,
+       f"Recommended Improvements ({len(improvements)} selected)", 2, color=GREEN)
     _body(
         doc,
         "Review each improvement below. Suggested text is ready to copy into your syllabus.",
@@ -781,7 +787,8 @@ def build_export_doc(syllabus: SyllabusInput, improvements: list[dict]) -> bytes
         doc.add_paragraph()  # breathing room
 
         # Title row
-        _h(doc, f"#{imp['rank']}  {imp['action']}", 3, space_before=14, space_after=4)
+        _h(doc, f"#{imp['rank']}  {imp['action']}",
+           3, space_before=14, space_after=4)
 
         _label(doc, "Where to add")
         _body(doc, imp["where"])
@@ -789,8 +796,8 @@ def build_export_doc(syllabus: SyllabusInput, improvements: list[dict]) -> bytes
         _label(doc, "Steps")
         for i, step in enumerate(imp["steps"], 1):
             p = doc.add_paragraph(style="List Number")
-            p.paragraph_format.space_after  = Pt(3)
-            p.paragraph_format.left_indent  = Inches(0.3)
+            p.paragraph_format.space_after = Pt(3)
+            p.paragraph_format.left_indent = Inches(0.3)
             run = p.add_run(step)
             run.font.size = Pt(11)
 
@@ -809,7 +816,7 @@ def build_export_doc(syllabus: SyllabusInput, improvements: list[dict]) -> bytes
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(12)
     run = p.add_run(
-        "This document was generated by the Faculty Course Co-Design System pilot. "
+        "This document was generated by the COMPASS pilot. "
         "All recommendations are advisory — faculty judgment takes precedence."
     )
     run.font.size = Pt(9)
@@ -829,7 +836,8 @@ def export_doc(body: ExportInput):
         if r in TARGETED_IMPROVEMENTS
     ]
     docx_bytes = build_export_doc(body.syllabus, improvements)
-    filename = body.syllabus.title.replace(" ", "_").replace("/", "-")[:50] + "_review.docx"
+    filename = body.syllabus.title.replace(
+        " ", "_").replace("/", "-")[:50] + "_review.docx"
     return StreamingResponse(
         io.BytesIO(docx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
